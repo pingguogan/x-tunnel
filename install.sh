@@ -165,9 +165,7 @@ credentials-file: /root/.cloudflared/${tunnel_id}.json
 
 ingress:
   - hostname: ${ARGO_DOMAIN}
-    service: http://127.0.0.1:${PORT}
-    originRequest:
-      noTLSVerify: true
+    service: "http://127.0.0.1:${PORT}"
   - service: http_status:404
 EOF
     info "cloudflared 配置已保存"
