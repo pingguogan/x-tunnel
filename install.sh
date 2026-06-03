@@ -29,6 +29,7 @@ USE_ARGO=false
 ARGO_MODE=""
 ARGO_DOMAIN=""
 ARGO_TUNNEL_NAME=""
+CF_TUNNEL_ID=""
 LISTEN_ADDR=""
 TOKEN=""
 PORT=""
@@ -157,11 +158,16 @@ setup_argo_named() {
     info "配置 DNS 路由: ${ARGO_DOMAIN} -> ${ARGO_TUNNEL_NAME}"
     cloudflared tunnel route dns "$ARGO_TUNNEL_NAME" "$ARGO_DOMAIN" 2>/dev/null || true
 
-    # 生成 cloudflared 配置
+    # 保存 tunnel_id 供后续生成配置
+    CF_TUNNEL_ID="${tunnel_id}"
+}
+
+# 生成 cloudflared 配置（在 configure() 之后调用，确保 PORT 已设置）
+generate_argo_config() {
     mkdir -p /etc/cloudflared
     cat > /etc/cloudflared/${ARGO_TUNNEL_NAME}.yml <<EOF
-tunnel: ${tunnel_id}
-credentials-file: /root/.cloudflared/${tunnel_id}.json
+tunnel: ${CF_TUNNEL_ID}
+credentials-file: /root/.cloudflared/${CF_TUNNEL_ID}.json
 
 ingress:
   - hostname: ${ARGO_DOMAIN}
@@ -661,6 +667,9 @@ main() {
     setup_firewall
 
     if $USE_ARGO; then
+        if [[ "$ARGO_MODE" == "named" ]]; then
+            generate_argo_config
+        fi
         install_argo_service
     fi
 
