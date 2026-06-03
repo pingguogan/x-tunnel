@@ -219,9 +219,15 @@ configure() {
     step "配置服务端"
 
     # 监听端口
-    echo -e "${CYAN}监听端口${NC} (默认 8443):"
+    local default_port=8443
+    local port_tip=""
+    if $USE_ARGO; then
+        default_port=8080
+        port_tip=" (Argo 模式无需公网端口，建议 8080)"
+    fi
+    echo -e "${CYAN}监听端口${NC}${port_tip} (默认 ${default_port}):"
     read -rp "> " PORT
-    PORT=${PORT:-8443}
+    PORT=${PORT:-$default_port}
 
     # WebSocket 路径
     echo -e "\n${CYAN}WebSocket 路径${NC} (默认 /tunnel，留空则无路径):"
@@ -436,12 +442,38 @@ EOF
 
     systemctl daemon-reload
     systemctl enable "${CF_SERVICE_NAME}" --now
-    sleep 2
 
-    if systemctl is-active --quiet "${CF_SERVICE_NAME}"; then
-        info "Argo Tunnel 服务已启动"
+    # 等待 Argo 隧道建立
+    info "等待 Argo 隧道建立..."
+    local ok=false
+    for i in $(seq 1 15); do
+        sleep 2
+        if systemctl is-active --quiet "${CF_SERVICE_NAME}"; then
+            # Quick 模式检查 URL 分配，Named 模式检查连接成功
+            if [[ "$ARGO_MODE" == "quick" ]]; then
+                local url
+                url=$(journalctl -u "${CF_SERVICE_NAME}" --no-pager -n 30 2>/dev/null | grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1)
+                if [[ -n "$url" ]]; then
+                    ok=true
+                    break
+                fi
+            else
+                local connected
+                connected=$(journalctl -u "${CF_SERVICE_NAME}" --no-pager -n 30 2>/dev/null | grep -c "Registered tunnel connection" || true)
+                if [[ "$connected" -gt 0 ]]; then
+                    ok=true
+                    break
+                fi
+            fi
+        else
+            break  # 服务已退出，不再等待
+        fi
+    done
+
+    if $ok; then
+        info "Argo Tunnel 已连接"
     else
-        warn "Argo Tunnel 启动可能需要几秒，检查日志: journalctl -u ${CF_SERVICE_NAME} -n 20"
+        warn "Argo Tunnel 可能仍在启动中，检查日志: journalctl -u ${CF_SERVICE_NAME} -f"
     fi
 }
 
@@ -538,6 +570,13 @@ ${GREEN}管理命令:${NC}
 ${GREEN}客户端连接:${NC}
   地址:  ${connect_addr}
   Token: ${TOKEN}
+
+${GREEN}GUI 客户端:${NC}
+  下载 x-tunnel-gui-windows-amd64.exe，高级选项中填写:
+  - ECH 配置 URL: https://api.hxlm.cc.cd/api/ech/raw?domain=cloudflare-ech.com
+
+${GREEN}CLI 客户端:${NC}
+  ./x-tunnel-client -f ${connect_addr} -token ${TOKEN}
 "
 }
 
