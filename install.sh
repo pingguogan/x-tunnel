@@ -152,6 +152,9 @@ setup_argo_named() {
     # 获取隧道 ID
     local tunnel_id
     tunnel_id=$(cloudflared tunnel list | grep "$ARGO_TUNNEL_NAME" | awk '{print $1}')
+    if [[ -z "$tunnel_id" ]]; then
+        error "获取隧道 ID 失败，请检查 cloudflared 是否正常"
+    fi
     info "隧道 ID: ${tunnel_id}"
 
     # DNS 路由
@@ -232,6 +235,9 @@ configure() {
     echo -e "${CYAN}监听端口${NC}${port_tip} (默认 ${default_port}):"
     read -rp "> " PORT
     PORT=${PORT:-$default_port}
+    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+        error "端口无效，请输入 1-65535 之间的数字"
+    fi
 
     # WebSocket 路径
     echo -e "\n${CYAN}WebSocket 路径${NC} (默认 /tunnel，留空则无路径):"
@@ -397,10 +403,15 @@ EOF
 
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}" --now
-    sleep 1
+    sleep 2
 
     if systemctl is-active --quiet "${SERVICE_NAME}"; then
-        info "x-tunnel 服务已启动"
+        # 检查端口是否真正监听
+        if ss -tlnp | grep -q ":${PORT} "; then
+            info "x-tunnel 服务已启动，端口 ${PORT} 已监听"
+        else
+            warn "x-tunnel 服务已启动，但端口 ${PORT} 未监听，检查日志: journalctl -u ${SERVICE_NAME} -n 20"
+        fi
     else
         error "服务启动失败: journalctl -u ${SERVICE_NAME} -n 20"
     fi
