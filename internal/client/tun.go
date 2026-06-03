@@ -9,16 +9,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/songgao/water"
 	"github.com/x-tunnel/internal/config"
 	"github.com/x-tunnel/internal/protocol"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 // TUNDevice TUN 虚拟网卡设备
 type TUNDevice struct {
 	pool   *ECHPool
 	cfg    config.TUNConfig
-	iface  *water.Interface
+	dev    tun.Device
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
@@ -26,24 +26,23 @@ type TUNDevice struct {
 // NewTUNDevice 创建 TUN 设备
 func NewTUNDevice(pool *ECHPool, cfg config.TUNConfig) (*TUNDevice, error) {
 	// 创建 TUN 设备
-	waterCfg := water.Config{
-		DeviceType: water.TUN,
-		PlatformSpecificParams: water.PlatformSpecificParams{
-			Name: cfg.Name,
-		},
+	mtu := cfg.MTU
+	if mtu <= 0 {
+		mtu = 1420
 	}
 
-	iface, err := water.New(waterCfg)
+	dev, err := tun.CreateTUN(cfg.Name, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("创建 TUN 设备失败: %w", err)
 	}
 
-	log.Printf("[TUN] TUN 设备已创建: %s", iface.Name())
+	name, _ := dev.Name()
+	log.Printf("[TUN] TUN 设备已创建: %s", name)
 
 	return &TUNDevice{
 		pool:   pool,
 		cfg:    cfg,
-		iface:  iface,
+		dev:    dev,
 		stopCh: make(chan struct{}),
 	}, nil
 }
@@ -55,7 +54,7 @@ func (t *TUNDevice) Start() error {
 
 	// 配置 TUN 接口 IP 地址
 	if err := t.configureInterface(); err != nil {
-		return fmt.Errorf("配置 TUN 接口失败: %w", err)
+		log.Printf("[TUN] 配置接口警告: %v", err)
 	}
 
 	// 启动数据包处理
@@ -70,7 +69,7 @@ func (t *TUNDevice) Start() error {
 func (t *TUNDevice) Stop() {
 	log.Printf("[TUN] 停止 TUN 设备...")
 	close(t.stopCh)
-	t.iface.Close()
+	t.dev.Close()
 	t.wg.Wait()
 	log.Printf("[TUN] TUN 设备已停止")
 }
@@ -85,9 +84,9 @@ func (t *TUNDevice) configureInterface() error {
 
 	// 使用系统命令配置接口 (Linux)
 	log.Printf("[TUN] 请手动配置 TUN 接口:")
-	log.Printf("[TUN]   sudo ip addr add %s dev %s", ip.String()+"/"+ipNet.Mask.String(), t.iface.Name())
-	log.Printf("[TUN]   sudo ip link set dev %s up", t.iface.Name())
-	log.Printf("[TUN]   sudo ip route add default dev %s table 100", t.iface.Name())
+	log.Printf("[TUN]   sudo ip addr add %s dev %s", ip.String()+"/"+ipNet.Mask.String(), t.cfg.Name)
+	log.Printf("[TUN]   sudo ip link set dev %s up", t.cfg.Name)
+	log.Printf("[TUN]   sudo ip route add default dev %s table 100", t.cfg.Name)
 
 	return nil
 }
@@ -97,6 +96,8 @@ func (t *TUNDevice) processPackets() {
 	defer t.wg.Done()
 
 	buf := make([]byte, 65535)
+	offset := 4 // tun 包头偏移
+
 	for {
 		select {
 		case <-t.stopCh:
@@ -105,7 +106,9 @@ func (t *TUNDevice) processPackets() {
 		}
 
 		// 读取数据包
-		n, err := t.iface.Read(buf)
+		sizes := []int{0}
+		bufs := [][]byte{buf}
+		_, err := t.dev.Read(bufs, sizes, offset)
 		if err != nil {
 			select {
 			case <-t.stopCh:
@@ -116,12 +119,13 @@ func (t *TUNDevice) processPackets() {
 			}
 		}
 
+		n := sizes[0]
 		if n < 20 {
 			continue
 		}
 
 		// 解析 IP 数据包
-		packet := buf[:n]
+		packet := buf[offset : offset+n]
 		go t.handlePacket(packet)
 	}
 }
@@ -196,7 +200,6 @@ func (t *TUNDevice) handleTCP(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPor
 	}
 	defer stream.Close()
 
-	// 注意：由于 TUN 工作在 IP 层，需要更复杂的实现来正确处理 TCP 连接
 	log.Printf("[TUN] TCP 连接已建立: %s", target)
 }
 

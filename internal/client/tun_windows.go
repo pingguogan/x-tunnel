@@ -9,42 +9,40 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/songgao/water"
 	"github.com/x-tunnel/internal/config"
 	"github.com/x-tunnel/internal/protocol"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 // TUNDevice TUN 虚拟网卡设备
 type TUNDevice struct {
 	pool   *ECHPool
 	cfg    config.TUNConfig
-	iface  *water.Interface
+	dev    tun.Device
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
 // NewTUNDevice 创建 TUN 设备
 func NewTUNDevice(pool *ECHPool, cfg config.TUNConfig) (*TUNDevice, error) {
-	// 创建 TUN 设备 (Windows 使用 InterfaceName)
-	waterCfg := water.Config{
-		DeviceType: water.TUN,
-		PlatformSpecificParams: water.PlatformSpecificParams{
-			InterfaceName: cfg.Name,
-			Network:       cfg.Subnet,
-		},
+	// 创建 TUN 设备 (Windows 使用 wintun 驱动)
+	mtu := cfg.MTU
+	if mtu <= 0 {
+		mtu = 1420
 	}
 
-	iface, err := water.New(waterCfg)
+	dev, err := tun.CreateTUN(cfg.Name, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("创建 TUN 设备失败: %w", err)
 	}
 
-	log.Printf("[TUN] TUN 设备已创建: %s", iface.Name())
+	name, _ := dev.Name()
+	log.Printf("[TUN] TUN 设备已创建: %s", name)
 
 	return &TUNDevice{
 		pool:   pool,
 		cfg:    cfg,
-		iface:  iface,
+		dev:    dev,
 		stopCh: make(chan struct{}),
 	}, nil
 }
@@ -53,6 +51,11 @@ func NewTUNDevice(pool *ECHPool, cfg config.TUNConfig) (*TUNDevice, error) {
 func (t *TUNDevice) Start() error {
 	log.Printf("[TUN] 启动 TUN 设备: %s, 子网: %s, MTU: %d", t.cfg.Name, t.cfg.Subnet, t.cfg.MTU)
 	log.Printf("[TUN] 模式: %s, DNS: %v", t.cfg.Mode, t.cfg.DNS)
+
+	// 配置 TUN 接口 IP 地址
+	if err := t.configureInterface(); err != nil {
+		log.Printf("[TUN] 配置接口警告: %v", err)
+	}
 
 	// 启动数据包处理
 	t.wg.Add(1)
@@ -66,9 +69,31 @@ func (t *TUNDevice) Start() error {
 func (t *TUNDevice) Stop() {
 	log.Printf("[TUN] 停止 TUN 设备...")
 	close(t.stopCh)
-	t.iface.Close()
+	t.dev.Close()
 	t.wg.Wait()
 	log.Printf("[TUN] TUN 设备已停止")
+}
+
+// configureInterface 配置 TUN 接口
+func (t *TUNDevice) configureInterface() error {
+	// 解析子网
+	ip, ipNet, err := net.ParseCIDR(t.cfg.Subnet)
+	if err != nil {
+		return fmt.Errorf("解析子网失败: %w", err)
+	}
+
+	mask := ipNet.Mask
+	_ = ip
+	_ = mask
+
+	// Windows 下需要使用 netsh 命令配置接口
+	log.Printf("[TUN] 请手动配置 TUN 接口 (管理员权限):")
+	log.Printf("[TUN]   netsh interface ip set address \"%s\" static %s %s", t.cfg.Name, ip.String(), mask.String())
+	for _, dns := range t.cfg.DNS {
+		log.Printf("[TUN]   netsh interface ip add dns \"%s\" %s", t.cfg.Name, dns)
+	}
+
+	return nil
 }
 
 // processPackets 处理 TUN 接口的数据包
@@ -76,6 +101,8 @@ func (t *TUNDevice) processPackets() {
 	defer t.wg.Done()
 
 	buf := make([]byte, 65535)
+	offset := 4 // tun 包头偏移
+
 	for {
 		select {
 		case <-t.stopCh:
@@ -84,7 +111,9 @@ func (t *TUNDevice) processPackets() {
 		}
 
 		// 读取数据包
-		n, err := t.iface.Read(buf)
+		sizes := []int{0}
+		bufs := [][]byte{buf}
+		_, err := t.dev.Read(bufs, sizes, offset)
 		if err != nil {
 			select {
 			case <-t.stopCh:
@@ -95,12 +124,13 @@ func (t *TUNDevice) processPackets() {
 			}
 		}
 
+		n := sizes[0]
 		if n < 20 {
 			continue
 		}
 
 		// 解析 IP 数据包
-		packet := buf[:n]
+		packet := buf[offset : offset+n]
 		go t.handlePacket(packet)
 	}
 }
