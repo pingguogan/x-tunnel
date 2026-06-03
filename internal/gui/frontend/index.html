@@ -182,6 +182,40 @@
             </div>
         </div>
 
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'tun-settings')" class="collapsed">🌐 TUN 模式 (虚拟网卡)</h2>
+            <div id="tun-settings" class="hidden">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label><input type="checkbox" id="tun-enabled"> 启用 TUN 模式</label>
+                        <div class="tips">需要管理员权限，创建虚拟网卡接管系统流量</div>
+                    </div>
+                    <div class="form-group">
+                        <label>TUN 模式</label>
+                        <select id="tun-mode">
+                            <option value="global">全局代理</option>
+                            <option value="rule">分流模式</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>设备名称</label>
+                        <input type="text" id="tun-name" placeholder="xtun" value="xtun">
+                    </div>
+                    <div class="form-group">
+                        <label>子网地址</label>
+                        <input type="text" id="tun-subnet" placeholder="10.0.0.1/24" value="10.0.0.1/24">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>DNS 服务器</label>
+                    <input type="text" id="tun-dns" placeholder="1.1.1.1,8.8.8.8" value="1.1.1.1,8.8.8.8">
+                    <div class="tips">逗号分隔，如 1.1.1.1,8.8.8.8</div>
+                </div>
+            </div>
+        </div>
+
         <div class="card" style="display: flex; gap: 8px;">
             <button class="btn btn-success btn-sm" onclick="saveCurrentProfile()">💾 保存当前配置</button>
         </div>
@@ -292,6 +326,13 @@
             document.getElementById('udp-block').value = profile.udp_block_ports || '443';
             document.getElementById('target-ips').value = (profile.target_ips || []).join(',');
 
+            // TUN 配置
+            document.getElementById('tun-enabled').checked = profile.tun_enabled || false;
+            document.getElementById('tun-name').value = profile.tun_name || 'xtun';
+            document.getElementById('tun-subnet').value = profile.tun_subnet || '10.0.0.1/24';
+            document.getElementById('tun-dns').value = profile.tun_dns || '1.1.1.1,8.8.8.8';
+            document.getElementById('tun-mode').value = profile.tun_mode || 'global';
+
             const list = document.getElementById('listen-list');
             list.innerHTML = '';
             (profile.listen || ['socks5://0.0.0.0:1080']).forEach(l => {
@@ -327,6 +368,11 @@
                 ech_config_url: document.getElementById('ech-config-url').value || '',
                 udp_block_ports: document.getElementById('udp-block').value || '443',
                 target_ips: document.getElementById('target-ips').value.split(',').map(s => s.trim()).filter(Boolean),
+                tun_enabled: document.getElementById('tun-enabled').checked,
+                tun_name: document.getElementById('tun-name').value || 'xtun',
+                tun_subnet: document.getElementById('tun-subnet').value || '10.0.0.1/24',
+                tun_dns: document.getElementById('tun-dns').value || '1.1.1.1,8.8.8.8',
+                tun_mode: document.getElementById('tun-mode').value || 'global',
             };
         }
 
@@ -365,6 +411,12 @@
             document.getElementById('ech-config-url').value = '';
             document.getElementById('udp-block').value = '443';
             document.getElementById('target-ips').value = '';
+            // TUN 配置
+            document.getElementById('tun-enabled').checked = false;
+            document.getElementById('tun-name').value = 'xtun';
+            document.getElementById('tun-subnet').value = '10.0.0.1/24';
+            document.getElementById('tun-dns').value = '1.1.1.1,8.8.8.8';
+            document.getElementById('tun-mode').value = 'global';
             const list = document.getElementById('listen-list');
             list.innerHTML = '<div class="listen-item"><input type="text" value="socks5://0.0.0.0:1080" class="listen-input"><button onclick="removeListen(this)">删除</button></div>';
             currentProfileName = null;
