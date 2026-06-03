@@ -264,6 +264,7 @@
                         <div class="server">${escapeHtml(p.server || '未设置')}</div>
                     </div>
                     <div class="actions">
+                        <button class="btn-success" style="padding:4px 10px;font-size:12px;border:none;border-radius:4px;cursor:pointer;" onclick="event.stopPropagation(); quickConnect('${escapeHtml(p.name)}')">连接</button>
                         <button class="btn-edit" onclick="event.stopPropagation(); editProfile('${escapeHtml(p.name)}')">编辑</button>
                         <button class="btn-del" onclick="event.stopPropagation(); deleteProfile('${escapeHtml(p.name)}')">删除</button>
                     </div>
@@ -462,6 +463,20 @@
 
         loadProfiles();
         startPolling();
+
+        // 快速连接（切换配置并立即连接）
+        async function quickConnect(name) {
+            selectProfile(name);
+            await saveCurrentProfile();
+            try {
+                await fetch('/api/disconnect', { method: 'POST' });
+                await new Promise(r => setTimeout(r, 500));
+                await fetch('/api/connect', { method: 'POST' });
+                startPolling();
+            } catch (e) {
+                alert('连接失败: ' + e.message);
+            }
+        }
 
         // 快速导入
         function showImportModal() {
