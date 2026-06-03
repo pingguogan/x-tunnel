@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/x-tunnel/internal/client"
-	"github.com/x-tunnel/internal/config"
 	"github.com/x-tunnel/internal/protocol"
 )
 
@@ -42,11 +41,6 @@ type ServerProfile struct {
 	IPStrategy    string   `json:"ip_strategy"`
 	TargetIPs     []string `json:"target_ips"`
 	UDPBlockPorts string   `json:"udp_block_ports"`
-	TUNEnabled    bool     `json:"tun_enabled"`
-	TUNName       string   `json:"tun_name"`
-	TUNSubnet     string   `json:"tun_subnet"`
-	TUNDNS        string   `json:"tun_dns"`
-	TUNMode       string   `json:"tun_mode"`
 }
 
 // AppConfig 应用配置文件
@@ -400,42 +394,6 @@ func (a *App) connect() error {
 	a.status = "已连接"
 	a.mu.Unlock()
 	a.addLog("INFO", "连接成功")
-
-	// 启动 TUN 模式
-	if p.TUNEnabled {
-		tunCfg := config.TUNConfig{
-			Enabled:   true,
-			Name:      p.TUNName,
-			Subnet:    p.TUNSubnet,
-			MTU:       1420,
-			DNS:       strings.Split(p.TUNDNS, ","),
-			Mode:      p.TUNMode,
-			AutoRoute: true,
-		}
-		if tunCfg.Name == "" {
-			tunCfg.Name = "xtun"
-		}
-		if tunCfg.Subnet == "" {
-			tunCfg.Subnet = "10.0.0.1/24"
-		}
-		if len(tunCfg.DNS) == 0 || tunCfg.DNS[0] == "" {
-			tunCfg.DNS = []string{"1.1.1.1", "8.8.8.8"}
-		}
-		if tunCfg.Mode == "" {
-			tunCfg.Mode = "global"
-		}
-
-		tunDevice, err := client.NewTUNDevice(a.pool, tunCfg)
-		if err != nil {
-			a.addLog("ERROR", fmt.Sprintf("创建 TUN 设备失败: %v", err))
-		} else {
-			if err := tunDevice.Start(); err != nil {
-				a.addLog("ERROR", fmt.Sprintf("启动 TUN 设备失败: %v", err))
-			} else {
-				a.addLog("INFO", fmt.Sprintf("TUN 模式已启用: %s (%s)", tunCfg.Name, tunCfg.Subnet))
-			}
-		}
-	}
 
 	for _, rule := range p.Listen {
 		rule := rule

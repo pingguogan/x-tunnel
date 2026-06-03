@@ -91,41 +91,7 @@ type ClientConfig struct {
 	IPStrategy    string       `json:"ip_strategy"`
 	TargetIPs     []string     `json:"target_ips"`
 	UDPBlockPorts string       `json:"udp_block_ports"`
-	TUN           TUNConfig    `json:"tun"`
 	Global        GlobalConfig `json:"global"`
-}
-
-// TUNConfig TUN 虚拟网卡配置
-type TUNConfig struct {
-	Enabled   bool        `json:"enabled"`    // 启用 TUN 模式
-	Name      string      `json:"name"`       // TUN 设备名，默认 "xtun"
-	Subnet    string      `json:"subnet"`     // 子网地址，默认 "10.0.0.1/24"
-	MTU       int         `json:"mtu"`        // MTU，默认 1420
-	DNS       []string    `json:"dns"`        // DNS 服务器，默认 ["1.1.1.1", "8.8.8.8"]
-	Mode      string      `json:"mode"`       // 模式: "global" 或 "rule"
-	AutoRoute bool        `json:"auto_route"` // 自动添加路由
-	Rules     []TUNRule   `json:"rules"`      // 分流规则
-}
-
-// TUNRule 分流规则
-type TUNRule struct {
-	Type   string `json:"type"`   // cidr, domain, domain_suffix
-	Value  string `json:"value"`  // 规则值
-	Action string `json:"action"` // proxy 或 direct
-}
-
-// DefaultTUNConfig 返回默认 TUN 配置
-func DefaultTUNConfig() TUNConfig {
-	return TUNConfig{
-		Enabled:   false,
-		Name:      "xtun",
-		Subnet:    "10.0.0.1/24",
-		MTU:       1420,
-		DNS:       []string{"1.1.1.1", "8.8.8.8"},
-		Mode:      "global",
-		AutoRoute: true,
-		Rules:     []TUNRule{},
-	}
 }
 
 // DefaultClientConfig 返回默认客户端配置
@@ -136,7 +102,6 @@ func DefaultClientConfig() ClientConfig {
 		ECHDomain:     "cloudflare-ech.com",
 		DNSServer:     "https://doh.pub/dns-query",
 		UDPBlockPorts: "443",
-		TUN:           DefaultTUNConfig(),
 		Global:        DefaultGlobalConfig(),
 	}
 }

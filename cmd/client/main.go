@@ -31,11 +31,6 @@ func main() {
 	ipStrategy := flag.String("ips", "", "IP 策略 (4/6/4,6/6,4)")
 	targetIPs := flag.String("ip", "", "指定目标IP")
 	blockPorts := flag.String("block", "443", "UDP 拦截端口")
-	tunEnabled := flag.Bool("tun", false, "启用 TUN 模式 (需要 root 权限)")
-	tunName := flag.String("tun-name", "xtun", "TUN 设备名称")
-	tunSubnet := flag.String("tun-subnet", "10.0.0.1/24", "TUN 子网地址")
-	tunDNS := flag.String("tun-dns", "1.1.1.1,8.8.8.8", "TUN DNS 服务器 (逗号分隔)")
-	tunMode := flag.String("tun-mode", "global", "TUN 模式: global (全局) 或 rule (分流)")
 	flag.Parse()
 
 	var cfg *config.ClientConfig
@@ -90,23 +85,6 @@ func main() {
 	}
 	if *blockPorts != "443" {
 		cfg.UDPBlockPorts = *blockPorts
-	}
-
-	// TUN 参数
-	if *tunEnabled {
-		cfg.TUN.Enabled = true
-	}
-	if *tunName != "xtun" {
-		cfg.TUN.Name = *tunName
-	}
-	if *tunSubnet != "10.0.0.1/24" {
-		cfg.TUN.Subnet = *tunSubnet
-	}
-	if *tunDNS != "1.1.1.1,8.8.8.8" {
-		cfg.TUN.DNS = strings.Split(*tunDNS, ",")
-	}
-	if *tunMode != "global" {
-		cfg.TUN.Mode = *tunMode
 	}
 
 	// 显示用法
@@ -187,19 +165,6 @@ func main() {
 
 	// 创建代理
 	proxy := client.NewProxy(pool, strategy, udpBlockPorts)
-
-	// 启动 TUN 模式
-	if cfg.TUN.Enabled {
-		log.Printf("[客户端] TUN 模式已启用")
-		tunDevice, err := client.NewTUNDevice(pool, cfg.TUN)
-		if err != nil {
-			log.Fatalf("[客户端] 创建 TUN 设备失败: %v", err)
-		}
-		if err := tunDevice.Start(); err != nil {
-			log.Fatalf("[客户端] 启动 TUN 设备失败: %v", err)
-		}
-		defer tunDevice.Stop()
-	}
 
 	// 启动监听器
 	var wg sync.WaitGroup
