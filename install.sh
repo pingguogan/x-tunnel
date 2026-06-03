@@ -4,7 +4,7 @@ set -e
 # x-tunnel 服务端一键部署脚本
 # 用法: bash <(curl -fsSL https://raw.githubusercontent.com/user/x-tunnel/main/install.sh)
 
-REPO="pingguogan/x-tunnel2"
+REPO="pingguogan/x-tunnel"
 BINARY_NAME="x-tunnel-server"
 INSTALL_DIR="/opt/x-tunnel"
 SERVICE_NAME="x-tunnel"
