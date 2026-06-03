@@ -53,6 +53,10 @@ type ECHPool struct {
 	lastRefresh   time.Time              // 上次刷新时间，防止刷新风暴
 	onRefreshed   func(echBase64 string) // ECH 刷新成功回调，用于同步配置到 GUI
 
+	// 停止信号
+	stopCh chan struct{}
+	stopped bool
+
 	// 缓存：系统证书池（避免每次 TLS 连接重复加载）
 	rootCAs   *x509.CertPool
 	rootCAsOnce sync.Once
@@ -81,6 +85,7 @@ func NewECHPool(addr string, n int, ips []string, clientID string, token string,
 		smuxConns:     make([]*smux.Session, total),
 		channelRTT:    make([]int64, total),
 		onRefreshed:   onRefreshed,
+		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -124,6 +129,27 @@ func (p *ECHPool) Start() error {
 	return nil
 }
 
+// Stop 停止连接池
+func (p *ECHPool) Stop() {
+	if p.stopped {
+		return
+	}
+	p.stopped = true
+	close(p.stopCh)
+
+	// 关闭所有 smux 会话
+	p.wsConnsMu.Lock()
+	for i, sess := range p.smuxConns {
+		if sess != nil && !sess.IsClosed() {
+			sess.Close()
+		}
+		p.smuxConns[i] = nil
+	}
+	p.wsConnsMu.Unlock()
+
+	log.Printf("[客户端] 连接池已停止")
+}
+
 func (p *ECHPool) dialAndServe(idx int, ip string) {
 	chID := idx + 1
 	ipLabel := ip
@@ -131,11 +157,23 @@ func (p *ECHPool) dialAndServe(idx int, ip string) {
 		ipLabel = "自动解析"
 	}
 	for {
+		// 检查是否已停止
+		select {
+		case <-p.stopCh:
+			return
+		default:
+		}
+
 		wsConn, err := p.dialWebSocket(p.wsServerAddr, 3, ip, p.clientID, chID)
 		if err != nil {
 			log.Printf("[客户端] 通道 %d (IP:%s) 连接失败: %v", chID, ipLabel, err)
-			time.Sleep(3 * time.Second)
-			continue
+			// 等待或停止
+			select {
+			case <-p.stopCh:
+				return
+			case <-time.After(3 * time.Second):
+				continue
+			}
 		}
 		wsNet := protocol.NewWSNetConn(wsConn)
 		smuxCfg := smux.DefaultConfig()
