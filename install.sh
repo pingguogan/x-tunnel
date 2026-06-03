@@ -37,7 +37,9 @@ KEY_PATH=""
 
 # 检查 root
 check_root() {
-    [[ $EUID -ne 0 ]] && error "请使用 root 运行此脚本"
+    if [[ $EUID -ne 0 ]]; then
+        error "请使用 root 运行此脚本"
+    fi
 }
 
 # 检测系统架构
@@ -285,7 +287,7 @@ configure() {
             echo -e "${CYAN}粘贴证书内容 (PEM 格式，输入 END 结束):${NC}"
             cert_content=""
             while IFS= read -r line; do
-                [[ "$line" == "END" ]] && break
+                if [[ "$line" == "END" ]]; then break; fi
                 cert_content+="${line}"$'\n'
             done
             echo "$cert_content" > "$CERT_PATH"
@@ -294,7 +296,7 @@ configure() {
             echo -e "\n${CYAN}粘贴私钥内容 (PEM 格式，输入 END 结束):${NC}"
             key_content=""
             while IFS= read -r line; do
-                [[ "$line" == "END" ]] && break
+                if [[ "$line" == "END" ]]; then break; fi
                 key_content+="${line}"$'\n'
             done
             echo "$key_content" > "$KEY_PATH"
@@ -304,11 +306,11 @@ configure() {
         3)
             echo -e "${CYAN}证书文件路径:${NC}"
             read -rp "> " CERT_PATH
-            [[ ! -f "$CERT_PATH" ]] && error "证书文件不存在: $CERT_PATH"
+            if [[ ! -f "$CERT_PATH" ]]; then error "证书文件不存在: $CERT_PATH"; fi
 
             echo -e "${CYAN}私钥文件路径:${NC}"
             read -rp "> " KEY_PATH
-            [[ ! -f "$KEY_PATH" ]] && error "私钥文件不存在: $KEY_PATH"
+            if [[ ! -f "$KEY_PATH" ]]; then error "私钥文件不存在: $KEY_PATH"; fi
             ;;
         4)
             SCHEME="ws"
@@ -582,6 +584,11 @@ main() {
     esac
 
     check_root
+
+    # 检查必要工具
+    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+        error "需要 curl 或 wget，请先安装"
+    fi
 
     mkdir -p "${INSTALL_DIR}"
 
