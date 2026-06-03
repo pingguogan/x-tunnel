@@ -595,8 +595,19 @@ func (a *App) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.manualStop = true
 	a.status = "未连接"
-	a.pool = nil
-	a.proxy = nil
+
+	// 停止代理
+	if a.proxy != nil {
+		a.proxy.Stop()
+		a.proxy = nil
+	}
+
+	// 停止连接池
+	if a.pool != nil {
+		a.pool.Stop()
+		a.pool = nil
+	}
+
 	// 发送停止信号
 	select {
 	case <-a.stopCh:

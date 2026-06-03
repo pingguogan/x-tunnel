@@ -29,6 +29,9 @@ type Proxy struct {
 	pool        *ECHPool
 	ipStrategy  byte
 	blockPorts  map[int]struct{}
+	stopCh      chan struct{}
+	listeners   []net.Listener
+	mu          sync.Mutex
 }
 
 // NewProxy 创建代理
@@ -37,7 +40,26 @@ func NewProxy(pool *ECHPool, ipStrategy byte, blockPorts map[int]struct{}) *Prox
 		pool:       pool,
 		ipStrategy: ipStrategy,
 		blockPorts: blockPorts,
+		stopCh:     make(chan struct{}),
 	}
+}
+
+// Stop 停止代理服务器
+func (p *Proxy) Stop() {
+	close(p.stopCh)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// 关闭所有监听器
+	for _, l := range p.listeners {
+		if l != nil {
+			l.Close()
+		}
+	}
+	p.listeners = nil
+
+	log.Printf("[客户端] 代理已停止")
 }
 
 // RunTCPListener 运行 TCP 转发器
@@ -53,11 +75,28 @@ func (p *Proxy) RunTCPListener(rule string) {
 		log.Printf("[客户端] TCP监听失败: %v", err)
 		return
 	}
+
+	// 注册监听器
+	p.mu.Lock()
+	p.listeners = append(p.listeners, l)
+	p.mu.Unlock()
+
 	log.Printf("[客户端] TCP转发: %s -> %s", lAddr, tAddr)
 	for {
+		select {
+		case <-p.stopCh:
+			return
+		default:
+		}
+
 		c, err := l.Accept()
 		if err != nil {
-			continue
+			select {
+			case <-p.stopCh:
+				return
+			default:
+				continue
+			}
 		}
 		go p.handleLocalTCP(c, tAddr)
 	}
@@ -86,12 +125,29 @@ func (p *Proxy) RunSOCKS5Listener(addr string) {
 		log.Printf("[客户端] SOCKS5监听失败: %v", err)
 		return
 	}
+
+	// 注册监听器
+	p.mu.Lock()
+	p.listeners = append(p.listeners, l)
+	p.mu.Unlock()
+
 	log.Printf("[客户端] SOCKS5 代理: %s", h)
 	cfgp := &ProxyConfig{u, pass, h}
 	for {
+		select {
+		case <-p.stopCh:
+			return
+		default:
+		}
+
 		c, err := l.Accept()
 		if err != nil {
-			continue
+			select {
+			case <-p.stopCh:
+				return
+			default:
+				continue
+			}
 		}
 		go p.handleSOCKS5(c, cfgp)
 	}
@@ -394,12 +450,29 @@ func (p *Proxy) RunHTTPListener(addr string) {
 		log.Printf("[客户端] HTTP监听失败: %v", err)
 		return
 	}
+
+	// 注册监听器
+	p.mu.Lock()
+	p.listeners = append(p.listeners, l)
+	p.mu.Unlock()
+
 	log.Printf("[客户端] HTTP 代理: %s", h)
 	cfgp := &ProxyConfig{u, pass, h}
 	for {
+		select {
+		case <-p.stopCh:
+			return
+		default:
+		}
+
 		c, err := l.Accept()
 		if err != nil {
-			continue
+			select {
+			case <-p.stopCh:
+				return
+			default:
+				continue
+			}
 		}
 		go p.handleHTTP(c, cfgp)
 	}
