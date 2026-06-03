@@ -47,7 +47,7 @@
         .listen-item button { padding: 6px 12px; background: #ef5350; color: white; border: none; border-radius: 4px; cursor: pointer; }
         .add-listen { padding: 6px 12px; background: #4fc3f7; color: #000; border: none; border-radius: 4px; cursor: pointer; margin-top: 8px; }
         .tips { font-size: 12px; color: #666; margin-top: 8px; }
-        .hidden { display: none; }
+        .hidden { display: none !important; }
 
         /* 配置列表 */
         .profile-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -195,7 +195,7 @@
     </div>
 
     <!-- 快速导入弹窗 -->
-    <div class="modal-overlay hidden" id="import-modal">
+    <div class="modal-overlay hidden" id="import-modal" onclick="if(event.target===this)hideImportModal()">
         <div class="modal">
             <h3>📋 快速导入</h3>
             <p style="font-size: 13px; color: #aaa; margin-bottom: 12px;">粘贴 install.sh 脚本输出的部署信息，自动解析服务器地址和 Token</p>
@@ -479,6 +479,7 @@
         }
 
 
+
         // 快速导入
         function showImportModal() {
             document.getElementById('import-text').value = '';
@@ -489,6 +490,11 @@
         function hideImportModal() {
             document.getElementById('import-modal').classList.add('hidden');
         }
+
+        // ESC 键关闭弹窗
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') hideImportModal();
+        });
 
         function parseAndImport() {
             const text = document.getElementById('import-text').value;
