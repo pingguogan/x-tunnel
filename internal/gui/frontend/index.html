@@ -489,6 +489,11 @@
             document.getElementById('import-modal').classList.add('hidden');
         }
 
+        // ESC 键关闭弹窗
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') hideImportModal();
+        });
+
         function parseAndImport() {
             const text = document.getElementById('import-text').value;
             if (!text.trim()) {
