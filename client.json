@@ -1,0 +1,24 @@
+{
+  "server": "wss://your-server.com",
+  "token": "your-secret-token",
+  "listen": [
+    "socks5://0.0.0.0:1080",
+    "http://0.0.0.0:8080"
+  ],
+  "connections": 3,
+  "insecure": false,
+  "fallback": false,
+  "ech_domain": "cloudflare-ech.com",
+  "dns_server": "https://doh.pub/dns-query",
+  "ech_config_url": "https://api.hxlm.cc.cd/api/ech/raw?domain=cloudflare-ech.com",
+  "ip_strategy": "",
+  "target_ips": [],
+  "udp_block_ports": "443",
+  "global": {
+    "dial_timeout_sec": 3,
+    "ws_handshake_timeout_sec": 5,
+    "reconnect_delay_sec": 1,
+    "rtt_probe_timeout_sec": 2,
+    "read_buf": 65536
+  }
+}

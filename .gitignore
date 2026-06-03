@@ -1,0 +1,24 @@
+# 编译产物
+x-tunnel-server
+x-tunnel-client
+x-tunnel-client.exe
+x-tunnel-gui
+x-tunnel-gui.exe
+*.exe
+*.tar.gz
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+vendor/
+
+# 配置（运行时生成，不含敏感信息的示例保留）
+x-tunnel-config.json

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>x-tunnel 客户端</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; margin-bottom: 24px; font-size: 24px; color: #4fc3f7; }
+        .card { background: #16213e; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #0f3460; }
+        .card h2 { font-size: 16px; margin-bottom: 16px; color: #4fc3f7; cursor: pointer; user-select: none; }
+        .card h2::after { content: ' ▼'; font-size: 12px; }
+        .card h2.collapsed::after { content: ' ▶'; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 13px; color: #aaa; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; background: #0f3460; border: 1px solid #1a1a4e; border-radius: 6px; color: #eee; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: #4fc3f7; }
+        .form-group input[type="checkbox"] { width: auto; margin-right: 6px; }
+        .form-row { display: flex; gap: 12px; }
+        .form-row .form-group { flex: 1; }
+        .btn { padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: #4fc3f7; color: #000; }
+        .btn-primary:hover { background: #29b6f6; }
+        .btn-danger { background: #ef5350; color: #fff; }
+        .btn-danger:hover { background: #f44336; }
+        .btn-sm { padding: 6px 14px; font-size: 13px; }
+        .btn-success { background: #66bb6a; color: #000; }
+        .btn-success:hover { background: #4caf50; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .status-dot.offline { background: #ef5350; }
+        .status-dot.connecting { background: #ffa726; animation: pulse 1s infinite; }
+        .status-dot.online { background: #66bb6a; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .log-container { background: #0a0a1a; border-radius: 8px; padding: 12px; height: 300px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; line-height: 1.6; }
+        .log-entry { padding: 2px 0; }
+        .log-entry .time { color: #666; }
+        .log-entry .info { color: #66bb6a; }
+        .log-entry .warn { color: #ffa726; }
+        .log-entry .error { color: #ef5350; }
+        .listen-list { display: flex; flex-direction: column; gap: 8px; }
+        .listen-item { display: flex; gap: 8px; align-items: center; }
+        .listen-item input { flex: 1; }
+        .listen-item button { padding: 6px 12px; background: #ef5350; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .add-listen { padding: 6px 12px; background: #4fc3f7; color: #000; border: none; border-radius: 4px; cursor: pointer; margin-top: 8px; }
+        .tips { font-size: 12px; color: #666; margin-top: 8px; }
+        .hidden { display: none; }
+
+        /* 配置列表 */
+        .profile-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .profile-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #0f3460; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; }
+        .profile-item:hover { background: #1a4a8a; }
+        .profile-item.active { border-color: #4fc3f7; background: #1a4a8a; }
+        .profile-item .name { flex: 1; font-weight: 600; }
+        .profile-item .server { font-size: 12px; color: #888; }
+        .profile-item .actions { display: flex; gap: 6px; }
+        .profile-item .actions button { padding: 4px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer; }
+        .profile-item .actions .btn-edit { background: #4fc3f7; color: #000; }
+        .profile-item .actions .btn-del { background: #ef5350; color: #fff; }
+        .profile-actions { display: flex; gap: 8px; }
+
+        /* 弹窗 */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 100; }
+        .modal { background: #16213e; border-radius: 12px; padding: 24px; width: 500px; max-height: 80vh; overflow-y: auto; border: 1px solid #0f3460; }
+        .modal h3 { margin-bottom: 16px; color: #4fc3f7; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 x-tunnel 客户端</h1>
+
+        <div class="card">
+            <div class="status">
+                <div class="status-dot offline" id="status-dot"></div>
+                <span id="status-text">未连接</span>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button class="btn btn-primary" id="connect-btn" onclick="doConnect()">连接</button>
+                <button class="btn btn-danger" id="disconnect-btn" onclick="doDisconnect()" disabled>断开</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'profile-section')">📋 服务端配置列表</h2>
+            <div id="profile-section">
+                <div class="profile-list" id="profile-list"></div>
+                <div class="profile-actions">
+                    <button class="btn btn-success btn-sm" onclick="addProfile()">+ 新增配置</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'basic-settings')">⚙️ 基本设置</h2>
+            <div id="basic-settings">
+                <div class="form-group">
+                    <label>配置名称</label>
+                    <input type="text" id="profile-name" placeholder="我的服务器">
+                </div>
+                <div class="form-group">
+                    <label>服务器地址</label>
+                    <input type="text" id="server" placeholder="wss://example.com 或 ws://example.com">
+                </div>
+                <div class="form-group">
+                    <label>Token</label>
+                    <input type="text" id="token" placeholder="身份验证令牌">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>连接数</label>
+                        <input type="number" id="connections" value="3" min="1" max="10">
+                    </div>
+                    <div class="form-group">
+                        <label>IP 策略</label>
+                        <select id="ip-strategy">
+                            <option value="">默认</option>
+                            <option value="4">仅 IPv4</option>
+                            <option value="6">仅 IPv6</option>
+                            <option value="4,6">IPv4 优先</option>
+                            <option value="6,4">IPv6 优先</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label><input type="checkbox" id="insecure"> 忽略证书校验</label>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="fallback"> 禁用 ECH</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'advanced-settings')" class="collapsed">🔧 高级选项</h2>
+            <div id="advanced-settings" class="hidden">
+                <div class="form-group">
+                    <label>ECH 域名</label>
+                    <input type="text" id="ech-domain" placeholder="cloudflare-ech.com" value="cloudflare-ech.com">
+                    <div class="tips">用于查询 ECH 公钥的域名（仅 wss 模式生效）</div>
+                </div>
+                <div class="form-group">
+                    <label>ECH 配置 URL</label>
+                    <input type="text" id="ech-config-url" placeholder="https://example.com/api/ech?domain=cloudflare-ech.com">
+                    <div class="tips">从 URL 获取 ECH 配置，支持 JSON 和纯 base64 格式。获取后自动缓存，下次启动优先使用缓存</div>
+                </div>
+                <div class="form-group">
+                    <label>DoH DNS 服务器</label>
+                    <input type="text" id="dns-server" placeholder="https://doh.pub/dns-query" value="https://doh.pub/dns-query">
+                    <div class="tips">查询 ECH 公钥所用的 DNS 服务器（支持 DoH 或 UDP）</div>
+                </div>
+                <div class="form-group">
+                    <label>UDP 拦截端口</label>
+                    <input type="text" id="udp-block" placeholder="443" value="443">
+                    <div class="tips">客户端拦截 UDP 端口列表，逗号分隔，如 443,8443</div>
+                </div>
+                <div class="form-group">
+                    <label>指定连接 IP</label>
+                    <input type="text" id="target-ips" placeholder="1.2.3.4,5.6.7.8（逗号分隔，留空自动解析）">
+                    <div class="tips">将 ws/wss 主机名定向到指定 IP 连接，多个IP用逗号分隔</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'listen-settings')">📡 本地监听</h2>
+            <div id="listen-settings">
+                <div class="listen-list" id="listen-list">
+                    <div class="listen-item">
+                        <input type="text" value="socks5://0.0.0.0:1080" class="listen-input">
+                        <button onclick="removeListen(this)">删除</button>
+                    </div>
+                </div>
+                <button class="add-listen" onclick="addListen()">+ 添加监听</button>
+                <div class="tips">格式: socks5://[user:pass@]host:port, http://[user:pass@]host:port, tcp://listen/target</div>
+            </div>
+        </div>
+
+        <div class="card" style="display: flex; gap: 8px;">
+            <button class="btn btn-success btn-sm" onclick="saveCurrentProfile()">💾 保存当前配置</button>
+        </div>
+
+        <div class="card">
+            <h2 onclick="toggleSection(this, 'log-section')">📋 日志</h2>
+            <div id="log-section">
+                <div class="log-container" id="log-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pollInterval = null;
+        let appData = null;
+        let currentProfileName = null;
+
+        function toggleSection(header, sectionId) {
+            const section = document.getElementById(sectionId);
+            section.classList.toggle('hidden');
+            header.classList.toggle('collapsed');
+        }
+
+        function getListenList() {
+            return Array.from(document.querySelectorAll('.listen-input')).map(i => i.value).filter(v => v);
+        }
+
+        function addListen() {
+            const list = document.getElementById('listen-list');
+            const item = document.createElement('div');
+            item.className = 'listen-item';
+            item.innerHTML = '<input type="text" class="listen-input" placeholder="socks5://0.0.0.0:1080"><button onclick="removeListen(this)">删除</button>';
+            list.appendChild(item);
+        }
+
+        function removeListen(btn) {
+            btn.parentElement.remove();
+        }
+
+        // 加载配置列表
+        async function loadProfiles() {
+            try {
+                const resp = await fetch('/api/profiles');
+                appData = await resp.json();
+                renderProfileList();
+                if (appData.active_profile) {
+                    selectProfile(appData.active_profile);
+                }
+            } catch (e) {
+                console.error('加载配置失败:', e);
+            }
+        }
+
+        function renderProfileList() {
+            const list = document.getElementById('profile-list');
+            list.innerHTML = '';
+            if (!appData || !appData.profiles) return;
+            appData.profiles.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'profile-item' + (p.name === currentProfileName ? ' active' : '');
+                item.innerHTML = `
+                    <div>
+                        <div class="name">${escapeHtml(p.name)}</div>
+                        <div class="server">${escapeHtml(p.server || '未设置')}</div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-edit" onclick="event.stopPropagation(); editProfile('${escapeHtml(p.name)}')">编辑</button>
+                        <button class="btn-del" onclick="event.stopPropagation(); deleteProfile('${escapeHtml(p.name)}')">删除</button>
+                    </div>
+                `;
+                item.onclick = () => selectProfile(p.name);
+                list.appendChild(item);
+            });
+        }
+
+        function selectProfile(name) {
+            currentProfileName = name;
+            const profile = appData.profiles.find(p => p.name === name);
+            if (!profile) return;
+
+            document.getElementById('profile-name').value = profile.name || '';
+            document.getElementById('server').value = profile.server || '';
+            document.getElementById('token').value = profile.token || '';
+            document.getElementById('connections').value = profile.connections || 3;
+            document.getElementById('ip-strategy').value = profile.ip_strategy || '';
+            document.getElementById('insecure').checked = profile.insecure || false;
+            document.getElementById('fallback').checked = profile.fallback || false;
+            document.getElementById('ech-domain').value = profile.ech_domain || 'cloudflare-ech.com';
+            document.getElementById('dns-server').value = profile.dns_server || 'https://doh.pub/dns-query';
+            document.getElementById('ech-config-url').value = profile.ech_config_url || '';
+            document.getElementById('udp-block').value = profile.udp_block_ports || '443';
+            document.getElementById('target-ips').value = (profile.target_ips || []).join(',');
+
+            const list = document.getElementById('listen-list');
+            list.innerHTML = '';
+            (profile.listen || ['socks5://0.0.0.0:1080']).forEach(l => {
+                const item = document.createElement('div');
+                item.className = 'listen-item';
+                item.innerHTML = `<input type="text" value="${escapeHtml(l)}" class="listen-input"><button onclick="removeListen(this)">删除</button>`;
+                list.appendChild(item);
+            });
+
+            renderProfileList();
+
+            // 设置为活动配置
+            fetch('/api/active', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            });
+        }
+
+        function getCurrentProfileData() {
+            return {
+                name: document.getElementById('profile-name').value || '未命名',
+                server: document.getElementById('server').value,
+                token: document.getElementById('token').value,
+                listen: getListenList(),
+                connections: parseInt(document.getElementById('connections').value) || 3,
+                insecure: document.getElementById('insecure').checked,
+                fallback: document.getElementById('fallback').checked,
+                ip_strategy: document.getElementById('ip-strategy').value,
+                ech_domain: document.getElementById('ech-domain').value || 'cloudflare-ech.com',
+                dns_server: document.getElementById('dns-server').value || 'https://doh.pub/dns-query',
+                ech_config: (appData.profiles.find(p => p.name === currentProfileName) || {}).ech_config || '',
+                ech_config_url: document.getElementById('ech-config-url').value || '',
+                udp_block_ports: document.getElementById('udp-block').value || '443',
+                target_ips: document.getElementById('target-ips').value.split(',').map(s => s.trim()).filter(Boolean),
+            };
+        }
+
+        async function saveCurrentProfile() {
+            const data = getCurrentProfileData();
+            const isNew = !appData.profiles.find(p => p.name === data.name);
+
+            if (isNew) {
+                await fetch('/api/profile', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+            } else {
+                await fetch('/api/profile', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+            }
+            currentProfileName = data.name;
+            await loadProfiles();
+            alert('配置已保存');
+        }
+
+        async function addProfile() {
+            document.getElementById('profile-name').value = '';
+            document.getElementById('server').value = '';
+            document.getElementById('token').value = '';
+            document.getElementById('connections').value = '3';
+            document.getElementById('ip-strategy').value = '';
+            document.getElementById('insecure').checked = false;
+            document.getElementById('fallback').checked = false;
+            document.getElementById('ech-domain').value = 'cloudflare-ech.com';
+            document.getElementById('dns-server').value = 'https://doh.pub/dns-query';
+            document.getElementById('ech-config-url').value = '';
+            document.getElementById('udp-block').value = '443';
+            document.getElementById('target-ips').value = '';
+            const list = document.getElementById('listen-list');
+            list.innerHTML = '<div class="listen-item"><input type="text" value="socks5://0.0.0.0:1080" class="listen-input"><button onclick="removeListen(this)">删除</button></div>';
+            currentProfileName = null;
+            renderProfileList();
+        }
+
+        function editProfile(name) {
+            selectProfile(name);
+            // 确保基本设置可见
+            document.getElementById('basic-settings').classList.remove('hidden');
+        }
+
+        async function deleteProfile(name) {
+            if (!confirm('确定删除配置 "' + name + '" ?')) return;
+            await fetch('/api/profile?name=' + encodeURIComponent(name), { method: 'DELETE' });
+            await loadProfiles();
+        }
+
+        async function doConnect() {
+            // 先保存配置
+            await saveCurrentProfile();
+            try {
+                await fetch('/api/connect', { method: 'POST' });
+                startPolling();
+            } catch (e) {
+                alert('连接失败: ' + e.message);
+            }
+        }
+
+        async function doDisconnect() {
+            try {
+                await fetch('/api/disconnect', { method: 'POST' });
+                updateStatus('未连接');
+            } catch (e) {
+                alert('断开失败: ' + e.message);
+            }
+        }
+
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(async () => {
+                try {
+                    const resp = await fetch('/api/status');
+                    const data = await resp.json();
+                    updateStatus(data.status);
+                    const logResp = await fetch('/api/logs');
+                    const logs = await logResp.json();
+                    updateLogs(logs);
+                } catch {}
+            }, 2000);
+        }
+
+        function updateStatus(status) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            const connectBtn = document.getElementById('connect-btn');
+            const disconnectBtn = document.getElementById('disconnect-btn');
+
+            text.textContent = status;
+            dot.className = 'status-dot';
+
+            if (status === '已连接') {
+                dot.classList.add('online');
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else if (status === '连接中...') {
+                dot.classList.add('connecting');
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = true;
+            } else {
+                dot.classList.add('offline');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        function updateLogs(logs) {
+            const container = document.getElementById('log-container');
+            container.innerHTML = '';
+            logs.forEach(entry => {
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                const time = new Date(entry.timestamp).toLocaleTimeString('zh-CN');
+                const levelClass = (entry.level || 'info').toLowerCase();
+                div.innerHTML = `<span class="time">${time}</span> <span class="${levelClass}">[${entry.level}]</span> ${escapeHtml(entry.message)}`;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        loadProfiles();
+        startPolling();
+    </script>
+</body>
+</html>
