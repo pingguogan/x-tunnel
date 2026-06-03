@@ -90,6 +90,7 @@
                 <div class="profile-list" id="profile-list"></div>
                 <div class="profile-actions">
                     <button class="btn btn-success btn-sm" onclick="addProfile()">+ 新增配置</button>
+                    <button class="btn btn-primary btn-sm" onclick="showImportModal()">📋 快速导入</button>
                 </div>
             </div>
         </div>
@@ -193,6 +194,22 @@
         </div>
     </div>
 
+    <!-- 快速导入弹窗 -->
+    <div class="modal-overlay hidden" id="import-modal">
+        <div class="modal">
+            <h3>📋 快速导入</h3>
+            <p style="font-size: 13px; color: #aaa; margin-bottom: 12px;">粘贴 install.sh 脚本输出的部署信息，自动解析服务器地址和 Token</p>
+            <div class="form-group">
+                <textarea id="import-text" rows="10" style="width: 100%; padding: 10px; background: #0f3460; border: 1px solid #1a1a4e; border-radius: 6px; color: #eee; font-size: 13px; font-family: Consolas, monospace; resize: vertical;" placeholder="粘贴脚本输出..."></textarea>
+            </div>
+            <div id="import-preview" style="font-size: 13px; color: #66bb6a; margin-bottom: 8px; min-height: 20px;"></div>
+            <div class="modal-actions">
+                <button class="btn btn-sm" style="background: #555; color: #fff;" onclick="hideImportModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="parseAndImport()">解析并导入</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let pollInterval = null;
         let appData = null;
@@ -247,6 +264,7 @@
                         <div class="server">${escapeHtml(p.server || '未设置')}</div>
                     </div>
                     <div class="actions">
+                        <button class="btn-success" style="padding:4px 10px;font-size:12px;border:none;border-radius:4px;cursor:pointer;" onclick="event.stopPropagation(); quickConnect('${escapeHtml(p.name)}')">连接</button>
                         <button class="btn-edit" onclick="event.stopPropagation(); editProfile('${escapeHtml(p.name)}')">编辑</button>
                         <button class="btn-del" onclick="event.stopPropagation(); deleteProfile('${escapeHtml(p.name)}')">删除</button>
                     </div>
@@ -445,6 +463,79 @@
 
         loadProfiles();
         startPolling();
+
+        // 快速连接（切换配置并立即连接）
+        async function quickConnect(name) {
+            selectProfile(name);
+            await saveCurrentProfile();
+            try {
+                await fetch('/api/disconnect', { method: 'POST' });
+                await new Promise(r => setTimeout(r, 500));
+                await fetch('/api/connect', { method: 'POST' });
+                startPolling();
+            } catch (e) {
+                alert('连接失败: ' + e.message);
+            }
+        }
+
+        // 快速导入
+        function showImportModal() {
+            document.getElementById('import-text').value = '';
+            document.getElementById('import-preview').textContent = '';
+            document.getElementById('import-modal').classList.remove('hidden');
+        }
+
+        function hideImportModal() {
+            document.getElementById('import-modal').classList.add('hidden');
+        }
+
+        function parseAndImport() {
+            const text = document.getElementById('import-text').value;
+            if (!text.trim()) {
+                alert('请粘贴脚本输出');
+                return;
+            }
+
+            let server = '', token = '', echUrl = '';
+
+            // 提取 "地址:" 或 "客户端连接" 下的地址
+            const addrMatch = text.match(/地址:\s*(\S+)/);
+            if (addrMatch) server = addrMatch[1].trim();
+
+            // 提取 "Token:" （排除 "ECH 配置 URL" 等干扰）
+            const tokenMatch = text.match(/Token:\s*(\S+)/i);
+            if (tokenMatch) token = tokenMatch[1].trim();
+
+            // 提取 ECH 配置 URL
+            const echMatch = text.match(/ECH\s*配置\s*URL:\s*(\S+)/i);
+            if (echMatch) echUrl = echMatch[1].trim();
+
+            if (!server && !token) {
+                alert('未能解析出服务器地址或 Token，请检查格式');
+                return;
+            }
+
+            // 填充表单
+            if (server) document.getElementById('server').value = server;
+            if (token) document.getElementById('token').value = token;
+            if (echUrl) document.getElementById('ech-config-url').value = echUrl;
+
+            // 用域名作为配置名称
+            if (server) {
+                try {
+                    const hostname = new URL(server).hostname;
+                    document.getElementById('profile-name').value = hostname;
+                } catch {}
+            }
+
+            hideImportModal();
+
+            const preview = [];
+            if (server) preview.push('地址: ' + server);
+            if (token) preview.push('Token: ' + token);
+            if (echUrl) preview.push('ECH: ' + echUrl);
+            alert('已导入:\n' + preview.join('\n'));
+        }
     </script>
 </body>
 </html>
