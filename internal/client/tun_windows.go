@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build windows
 
 package client
 
@@ -25,11 +25,12 @@ type TUNDevice struct {
 
 // NewTUNDevice 创建 TUN 设备
 func NewTUNDevice(pool *ECHPool, cfg config.TUNConfig) (*TUNDevice, error) {
-	// 创建 TUN 设备
+	// 创建 TUN 设备 (Windows 使用 InterfaceName)
 	waterCfg := water.Config{
 		DeviceType: water.TUN,
 		PlatformSpecificParams: water.PlatformSpecificParams{
-			Name: cfg.Name,
+			InterfaceName: cfg.Name,
+			Network:       cfg.Subnet,
 		},
 	}
 
@@ -53,11 +54,6 @@ func (t *TUNDevice) Start() error {
 	log.Printf("[TUN] 启动 TUN 设备: %s, 子网: %s, MTU: %d", t.cfg.Name, t.cfg.Subnet, t.cfg.MTU)
 	log.Printf("[TUN] 模式: %s, DNS: %v", t.cfg.Mode, t.cfg.DNS)
 
-	// 配置 TUN 接口 IP 地址
-	if err := t.configureInterface(); err != nil {
-		return fmt.Errorf("配置 TUN 接口失败: %w", err)
-	}
-
 	// 启动数据包处理
 	t.wg.Add(1)
 	go t.processPackets()
@@ -73,23 +69,6 @@ func (t *TUNDevice) Stop() {
 	t.iface.Close()
 	t.wg.Wait()
 	log.Printf("[TUN] TUN 设备已停止")
-}
-
-// configureInterface 配置 TUN 接口
-func (t *TUNDevice) configureInterface() error {
-	// 解析子网
-	ip, ipNet, err := net.ParseCIDR(t.cfg.Subnet)
-	if err != nil {
-		return fmt.Errorf("解析子网失败: %w", err)
-	}
-
-	// 使用系统命令配置接口 (Linux)
-	log.Printf("[TUN] 请手动配置 TUN 接口:")
-	log.Printf("[TUN]   sudo ip addr add %s dev %s", ip.String()+"/"+ipNet.Mask.String(), t.iface.Name())
-	log.Printf("[TUN]   sudo ip link set dev %s up", t.iface.Name())
-	log.Printf("[TUN]   sudo ip route add default dev %s table 100", t.iface.Name())
-
-	return nil
 }
 
 // processPackets 处理 TUN 接口的数据包
@@ -196,7 +175,6 @@ func (t *TUNDevice) handleTCP(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPor
 	}
 	defer stream.Close()
 
-	// 注意：由于 TUN 工作在 IP 层，需要更复杂的实现来正确处理 TCP 连接
 	log.Printf("[TUN] TCP 连接已建立: %s", target)
 }
 
