@@ -337,6 +337,215 @@ ${GREEN}管理命令:${NC}
 "
 }
 
+# ─── 快速修改配置 ───────────────────────────────────────────────────────────────
+
+edit_config() {
+    step "修改 Argo Tunnel 配置"
+
+    # 检查服务是否存在
+    if [[ ! -f "/etc/systemd/system/${CF_SERVICE_NAME}.service" ]]; then
+        error "未找到 ${CF_SERVICE_NAME} 服务，请先安装"
+    fi
+
+    # 检测当前模式
+    local current_exec
+    current_exec=$(grep "^ExecStart=" "/etc/systemd/system/${CF_SERVICE_NAME}.service" | cut -d= -f2-)
+
+    if echo "$current_exec" | grep -q "\-\-config"; then
+        ARGO_MODE="named"
+    else
+        ARGO_MODE="quick"
+    fi
+
+    # 读取当前配置
+    local current_target=""
+    local current_domain=""
+    local current_tunnel_name=""
+    local current_tunnel_id=""
+
+    if [[ "$ARGO_MODE" == "named" ]]; then
+        # 从 ExecStart 提取配置文件路径
+        local config_file
+        config_file=$(echo "$current_exec" | grep -oP '(?<=--config )\S+')
+
+        if [[ -f "$config_file" ]]; then
+            current_tunnel_id=$(grep "^tunnel:" "$config_file" | awk '{print $2}')
+            current_domain=$(grep "hostname:" "$config_file" | awk '{print $2}')
+            current_tunnel_name=$(basename "$config_file" .yml)
+            local service_line
+            service_line=$(grep "service:" "$config_file" | head -1 | sed 's/.*service: *"\?\([^"]*\)"\?.*/\1/')
+            if echo "$service_line" | grep -q "^unix:"; then
+                current_target="$service_line"
+            else
+                current_target="$service_line"
+            fi
+        fi
+    else
+        # Quick 模式从 ExecStart 提取
+        current_target=$(echo "$current_exec" | grep -oP '(?<=--url )\S+')
+    fi
+
+    # 显示当前配置
+    echo -e "\n${GREEN}当前配置:${NC}"
+    echo -e "  模式:     ${ARGO_MODE}"
+    echo -e "  目标:     ${current_target}"
+    if [[ "$ARGO_MODE" == "named" ]]; then
+        echo -e "  域名:     ${current_domain}"
+        echo -e "  隧道名:   ${current_tunnel_name}"
+        echo -e "  隧道 ID:  ${current_tunnel_id}"
+    fi
+
+    # 选择修改项
+    echo -e "\n${CYAN}选择修改项:${NC}"
+    echo "  1) 修改转发目标 (端口/套接字)"
+    if [[ "$ARGO_MODE" == "named" ]]; then
+        echo "  2) 修改绑定域名"
+        echo "  3) 同时修改目标和域名"
+    fi
+    echo "  0) 取消"
+    read -rp "选择: " edit_choice
+
+    case $edit_choice in
+        0)
+            info "已取消"
+            return
+            ;;
+        1)
+            # 修改目标
+            echo -e "\n${CYAN}选择新转发方式:${NC}"
+            echo "  1) TCP 端口"
+            echo "  2) Unix 套接字"
+            read -rp "选择 [1-2]: " fwd_choice
+
+            case $fwd_choice in
+                1)
+                    echo -e "${CYAN}新端口${NC}:"
+                    read -rp "> " TARGET_PORT
+                    if ! [[ "$TARGET_PORT" =~ ^[0-9]+$ ]] || [ "$TARGET_PORT" -lt 1 ] || [ "$TARGET_PORT" -gt 65535 ]; then
+                        error "端口无效"
+                    fi
+                    TARGET_SOCK=""
+                    TARGET_HOST="127.0.0.1"
+                    ;;
+                2)
+                    echo -e "${CYAN}新套接字路径${NC}:"
+                    read -rp "> " TARGET_SOCK
+                    if [[ -z "$TARGET_SOCK" ]]; then
+                        error "路径不能为空"
+                    fi
+                    TARGET_PORT=""
+                    ;;
+                *)
+                    error "无效选择"
+                    ;;
+            esac
+
+            ARGO_DOMAIN="$current_domain"
+            ARGO_TUNNEL_NAME="$current_tunnel_name"
+            CF_TUNNEL_ID="$current_tunnel_id"
+            ;;
+        2)
+            if [[ "$ARGO_MODE" != "named" ]]; then
+                error "Quick 模式不支持修改域名"
+            fi
+            echo -e "${CYAN}新域名${NC}:"
+            read -rp "> " ARGO_DOMAIN
+            if [[ -z "$ARGO_DOMAIN" ]]; then
+                error "域名不能为空"
+            fi
+
+            # 从当前配置提取目标
+            if echo "$current_target" | grep -q "^unix:"; then
+                TARGET_SOCK="${current_target#unix:}"
+            else
+                TARGET_PORT=$(echo "$current_target" | grep -oP ':\K[0-9]+')
+                TARGET_HOST=$(echo "$current_target" | grep -oP '//\K[^:]+')
+            fi
+            ARGO_TUNNEL_NAME="$current_tunnel_name"
+            CF_TUNNEL_ID="$current_tunnel_id"
+
+            # 更新 DNS 路由
+            info "更新 DNS 路由: ${ARGO_DOMAIN} -> ${ARGO_TUNNEL_NAME}"
+            cloudflared tunnel route dns "$ARGO_TUNNEL_NAME" "$ARGO_DOMAIN" 2>/dev/null || true
+            ;;
+        3)
+            if [[ "$ARGO_MODE" != "named" ]]; then
+                error "Quick 模式不支持此选项"
+            fi
+            echo -e "${CYAN}新域名${NC}:"
+            read -rp "> " ARGO_DOMAIN
+            if [[ -z "$ARGO_DOMAIN" ]]; then
+                error "域名不能为空"
+            fi
+
+            echo -e "\n${CYAN}选择新转发方式:${NC}"
+            echo "  1) TCP 端口"
+            echo "  2) Unix 套接字"
+            read -rp "选择 [1-2]: " fwd_choice
+
+            case $fwd_choice in
+                1)
+                    echo -e "${CYAN}新端口${NC}:"
+                    read -rp "> " TARGET_PORT
+                    TARGET_SOCK=""
+                    TARGET_HOST="127.0.0.1"
+                    ;;
+                2)
+                    echo -e "${CYAN}新套接字路径${NC}:"
+                    read -rp "> " TARGET_SOCK
+                    TARGET_PORT=""
+                    ;;
+            esac
+
+            ARGO_TUNNEL_NAME="$current_tunnel_name"
+            CF_TUNNEL_ID="$current_tunnel_id"
+
+            info "更新 DNS 路由: ${ARGO_DOMAIN} -> ${ARGO_TUNNEL_NAME}"
+            cloudflared tunnel route dns "$ARGO_TUNNEL_NAME" "$ARGO_DOMAIN" 2>/dev/null || true
+            ;;
+        *)
+            error "无效选择"
+            ;;
+    esac
+
+    # 应用修改
+    local new_service_url
+    new_service_url=$(build_service_url)
+
+    if [[ "$ARGO_MODE" == "named" ]]; then
+        generate_argo_config
+    fi
+
+    # 更新 systemd 服务
+    local new_exec_start
+    if [[ "$ARGO_MODE" == "quick" ]]; then
+        new_exec_start="/usr/local/bin/cloudflared tunnel --url ${new_service_url} --no-autoupdate"
+    else
+        new_exec_start="/usr/local/bin/cloudflared tunnel --config ${CF_CONFIG_DIR}/${ARGO_TUNNEL_NAME}.yml run"
+    fi
+
+    # 更新 ExecStart
+    sed -i "s|^ExecStart=.*|ExecStart=${new_exec_start}|" "/etc/systemd/system/${CF_SERVICE_NAME}.service"
+
+    systemctl daemon-reload
+    systemctl restart "${CF_SERVICE_NAME}"
+
+    info "配置已更新，服务已重启"
+    echo -e "\n${GREEN}新配置:${NC}"
+    echo -e "  转发目标: $(build_target_desc)"
+    if [[ "$ARGO_MODE" == "named" ]]; then
+        echo -e "  域名:     ${ARGO_DOMAIN}"
+    fi
+
+    # 等待连接
+    sleep 3
+    if systemctl is-active --quiet "${CF_SERVICE_NAME}"; then
+        info "Argo Tunnel 运行中"
+    else
+        warn "服务启动异常，检查日志: journalctl -u ${CF_SERVICE_NAME} -n 20"
+    fi
+}
+
 # ─── 卸载 ───────────────────────────────────────────────────────────────────────
 
 uninstall() {
@@ -418,8 +627,16 @@ parse_args() {
             uninstall|remove)
                 uninstall
                 ;;
+            edit|config)
+                edit_config
+                exit 0
+                ;;
             -h|--help)
-                echo "用法: bash argo-tunnel.sh [选项]"
+                echo "用法: bash argo-tunnel.sh [命令|选项]"
+                echo ""
+                echo "命令:"
+                echo "  edit                 快速修改已有配置 (目标/域名)"
+                echo "  uninstall            卸载 Argo Tunnel"
                 echo ""
                 echo "目标 (二选一):"
                 echo "  --port <端口>        TCP 端口转发 (如 8080)"
@@ -432,7 +649,6 @@ parse_args() {
                 echo "  --service <服务名>   关联的 systemd 服务名 (添加依赖关系)"
                 echo "  --service-name <名>  Argo 服务的 systemd 服务名 (默认 cf-argo-tunnel)"
                 echo "  --mode <quick|named> Argo 模式 (省略则交互选择)"
-                echo "  uninstall            卸载 Argo Tunnel"
                 echo "  -h, --help           显示帮助"
                 echo ""
                 echo "示例:"
@@ -447,6 +663,9 @@ parse_args() {
                 echo ""
                 echo "  # Named Tunnel + Unix 套接字"
                 echo "  bash argo-tunnel.sh --socket /run/xray/in.sock --domain x.example.com --name my-xray"
+                echo ""
+                echo "  # 快速修改已有配置"
+                echo "  bash argo-tunnel.sh edit"
                 exit 0
                 ;;
             *)
