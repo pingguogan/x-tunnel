@@ -181,14 +181,23 @@ generate_argo_config() {
     service_url=$(build_service_url)
 
     mkdir -p "$CF_CONFIG_DIR"
+
+    local ingress_rules=""
+    if [[ -n "$ARGO_DOMAIN" ]]; then
+        ingress_rules="  - hostname: ${ARGO_DOMAIN}
+    service: \"${service_url}\"
+  - service: http_status:404"
+    else
+        ingress_rules="  - service: \"${service_url}\"
+  - service: http_status:404"
+    fi
+
     cat > "${CF_CONFIG_DIR}/${ARGO_TUNNEL_NAME}.yml" <<EOF
 tunnel: ${CF_TUNNEL_ID}
 credentials-file: /root/.cloudflared/${CF_TUNNEL_ID}.json
 
 ingress:
-  - hostname: ${ARGO_DOMAIN}
-    service: "${service_url}"
-  - service: http_status:404
+${ingress_rules}
 EOF
     info "cloudflared 配置已保存: ${CF_CONFIG_DIR}/${ARGO_TUNNEL_NAME}.yml"
 }
@@ -370,7 +379,7 @@ edit_config() {
 
         if [[ -f "$config_file" ]]; then
             current_tunnel_id=$(grep "^tunnel:" "$config_file" | awk '{print $2}')
-            current_domain=$(grep "hostname:" "$config_file" | awk '{print $2}')
+            current_domain=$(grep "hostname:" "$config_file" | head -1 | sed 's/.*hostname: *//;s/[[:space:]]*#.*//;s/[[:space:]]*$//')
             current_tunnel_name=$(basename "$config_file" .yml)
             local service_line
             service_line=$(grep "service:" "$config_file" | head -1 | sed 's/.*service: *"\?\([^"]*\)"\?.*/\1/')
